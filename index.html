@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スイカゲーム</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff9a56, #ffad56);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .game-container {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        h1 {
+            color: #ff6b35;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .score-board {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(255, 107, 53, 0.1);
+            border-radius: 10px;
+        }
+
+        .score {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        #reset-btn {
+            background: #ff6b35;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        #reset-btn:hover {
+            background: #e55a2b;
+        }
+
+        .next-fruit {
+            margin-bottom: 15px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        #next-fruit-display {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+
+        #game-canvas {
+            border: 3px solid #ff6b35;
+            border-radius: 10px;
+            background: #f0f8ff;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .controls {
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>🍉 スイカゲーム</h1>
+        <div class="score-board">
+            <div class="score">スコア: <span id="score">0</span></div>
+            <button id="reset-btn">リセット</button>
+        </div>
+        <div class="next-fruit">
+            次のフルーツ: <div id="next-fruit-display"></div>
+        </div>
+        <canvas id="game-canvas" width="400" height="600"></canvas>
+        <div class="controls">
+            <p>🖱️ クリックでフルーツを落とす</p>
+        </div>
+    </div>
+
+    <script>
+        class SuikaGame {
+            constructor() {
+                this.canvas = document.getElementById('game-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.score = 0;
+                this.fruits = [];
+                this.nextFruit = this.getRandomFruit();
+                this.gravity = 0.5;
+                this.friction = 0.8;
+                
+                this.fruitTypes = [
+                    { size: 20, color: '#ff6b35', emoji: '🍒', points: 10 },
+                    { size: 25, color: '#ff8c42', emoji: '🍓', points: 20 },
+                    { size: 30, color: '#ffd23f', emoji: '🍊', points: 30 },
+                    { size: 35, color: '#06ffa5', emoji: '🍋', points: 40 },
+                    { size: 40, color: '#4ecdc4', emoji: '🍎', points: 50 },
+                    { size: 45, color: '#45b7d1', emoji: '🍑', points: 60 },
+                    { size: 50, color: '#f093fb', emoji: '🥭', points: 70 },
+                    { size: 55, color: '#c471ed', emoji: '🍇', points: 80 },
+                    { size: 60, color: '#f093a0', emoji: '🥥', points: 90 },
+                    { size: 70, color: '#4ade80', emoji: '🍉', points: 100 }
+                ];
+
+                this.init();
+            }
+
+            init() {
+                this.canvas.addEventListener('click', (e) => this.dropFruit(e));
+                document.getElementById('reset-btn').addEventListener('click', () => this.reset());
+                this.updateNextFruitDisplay();
+                this.gameLoop();
+            }
+
+            getRandomFruit() {
+                return Math.floor(Math.random() * 5);
+            }
+
+            dropFruit(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                
+                const fruit = {
+                    x: x,
+                    y: 10,
+                    vx: 0,
+                    vy: 0,
+                    type: this.nextFruit,
+                    ...this.fruitTypes[this.nextFruit]
+                };
+
+                this.fruits.push(fruit);
+                this.nextFruit = this.getRandomFruit();
+                this.updateNextFruitDisplay();
+            }
+
+            updateNextFruitDisplay() {
+                const display = document.getElementById('next-fruit-display');
+                const nextType = this.fruitTypes[this.nextFruit];
+                display.style.backgroundColor = nextType.color;
+                display.style.width = '30px';
+                display.style.height = '30px';
+                display.textContent = nextType.emoji;
+                display.style.lineHeight = '30px';
+            }
+
+            update() {
+                this.fruits.forEach((fruit, index) => {
+                    fruit.vy += this.gravity;
+                    fruit.x += fruit.vx;
+                    fruit.y += fruit.vy;
+
+                    if (fruit.x - fruit.size < 0) {
+                        fruit.x = fruit.size;
+                        fruit.vx *= -this.friction;
+                    }
+                    if (fruit.x + fruit.size > this.canvas.width) {
+                        fruit.x = this.canvas.width - fruit.size;
+                        fruit.vx *= -this.friction;
+                    }
+                    if (fruit.y + fruit.size > this.canvas.height) {
+                        fruit.y = this.canvas.height - fruit.size;
+                        fruit.vy *= -this.friction;
+                        fruit.vx *= this.friction;
+                    }
+                });
+
+                this.checkCollisions();
+            }
+
+            checkCollisions() {
+                for (let i = 0; i < this.fruits.length; i++) {
+                    for (let j = i + 1; j < this.fruits.length; j++) {
+                        const fruit1 = this.fruits[i];
+                        const fruit2 = this.fruits[j];
+                        
+                        const dx = fruit1.x - fruit2.x;
+                        const dy = fruit1.y - fruit2.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        const minDistance = fruit1.size + fruit2.size;
+
+                        if (distance < minDistance) {
+                            if (fruit1.type === fruit2.type && fruit1.type < this.fruitTypes.length - 1) {
+                                this.mergeFruits(i, j);
+                                return;
+                            } else {
+                                const overlap = minDistance - distance;
+                                const separationX = (dx / distance) * overlap * 0.5;
+                                const separationY = (dy / distance) * overlap * 0.5;
+
+                                fruit1.x += separationX;
+                                fruit1.y += separationY;
+                                fruit2.x -= separationX;
+                                fruit2.y -= separationY;
+
+                                const vx1 = fruit1.vx;
+                                const vy1 = fruit1.vy;
+                                fruit1.vx = fruit2.vx * 0.8;
+                                fruit1.vy = fruit2.vy * 0.8;
+                                fruit2.vx = vx1 * 0.8;
+                                fruit2.vy = vy1 * 0.8;
+                            }
+                        }
+                    }
+                }
+            }
+
+            mergeFruits(index1, index2) {
+                const fruit1 = this.fruits[index1];
+                const fruit2 = this.fruits[index2];
+                
+                const newType = fruit1.type + 1;
+                const newFruit = {
+                    x: (fruit1.x + fruit2.x) / 2,
+                    y: (fruit1.y + fruit2.y) / 2,
+                    vx: 0,
+                    vy: 0,
+                    type: newType,
+                    ...this.fruitTypes[newType]
+                };
+
+                this.score += newFruit.points;
+                document.getElementById('score').textContent = this.score;
+
+                this.fruits.splice(Math.max(index1, index2), 1);
+                this.fruits.splice(Math.min(index1, index2), 1);
+                this.fruits.push(newFruit);
+            }
+
+            draw() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                this.fruits.forEach(fruit => {
+                    this.ctx.beginPath();
+                    this.ctx.arc(fruit.x, fruit.y, fruit.size, 0, Math.PI * 2);
+                    this.ctx.fillStyle = fruit.color;
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = '#333';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+
+                    this.ctx.font = `${fruit.size}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillStyle = 'white';
+                    this.ctx.fillText(fruit.emoji, fruit.x, fruit.y);
+                });
+            }
+
+            gameLoop() {
+                this.update();
+                this.draw();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+
+            reset() {
+                this.fruits = [];
+                this.score = 0;
+                this.nextFruit = this.getRandomFruit();
+                document.getElementById('score').textContent = this.score;
+                this.updateNextFruitDisplay();
+            }
+        }
+
+        window.addEventListener('load', () => {
+            new SuikaGame();
+        });
+    </script>
+</body>
+</html>
