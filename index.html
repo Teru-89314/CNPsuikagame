@@ -88,6 +88,63 @@
             color: #666;
             font-size: 14px;
         }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 30px;
+            border-radius: 20px;
+            width: 80%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal h2 {
+            color: #ff6b35;
+            margin-bottom: 20px;
+        }
+
+        .modal button {
+            background: #ff6b35;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px;
+        }
+
+        .modal button:hover {
+            background: #e55a2b;
+        }
+
+        .best-score {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+        }
+
+        .danger-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: rgba(255, 0, 0, 0.7);
+            border: 1px dashed red;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -95,14 +152,30 @@
         <h1>🍉 スイカゲーム</h1>
         <div class="score-board">
             <div class="score">スコア: <span id="score">0</span></div>
+            <div class="best-score">ベスト: <span id="best-score">0</span></div>
             <button id="reset-btn">リセット</button>
         </div>
         <div class="next-fruit">
             次のフルーツ: <div id="next-fruit-display"></div>
         </div>
-        <canvas id="game-canvas" width="400" height="600"></canvas>
+        <div style="position: relative; display: inline-block;">
+            <canvas id="game-canvas" width="400" height="600"></canvas>
+            <div class="danger-line" id="danger-line" style="top: 80px;"></div>
+        </div>
         <div class="controls">
             <p>🖱️ クリックでフルーツを落とす</p>
+            <p>🎯 目標: スイカ（🍉）を作ろう！</p>
+        </div>
+    </div>
+
+    <!-- モーダル -->
+    <div id="game-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">ゲームクリア！</h2>
+            <p id="modal-message">おめでとうございます！</p>
+            <p id="modal-score">スコア: 0</p>
+            <button id="continue-btn" style="display: none;">続ける</button>
+            <button id="restart-btn">新しいゲーム</button>
         </div>
     </div>
 
@@ -116,6 +189,11 @@
                 this.nextFruit = this.getRandomFruit();
                 this.gravity = 0.5;
                 this.friction = 0.8;
+                this.gameState = 'playing'; // 'playing', 'cleared', 'gameover'
+                this.dangerLine = 80;
+                this.gameOverTimer = 0;
+                this.clearEffects = [];
+                this.bestScore = this.loadBestScore();
                 
                 this.fruitTypes = [
                     { size: 20, color: '#ff6b35', emoji: '🍒', points: 10 },
@@ -136,7 +214,10 @@
             init() {
                 this.canvas.addEventListener('click', (e) => this.dropFruit(e));
                 document.getElementById('reset-btn').addEventListener('click', () => this.reset());
+                document.getElementById('continue-btn').addEventListener('click', () => this.closeModal());
+                document.getElementById('restart-btn').addEventListener('click', () => this.restart());
                 this.updateNextFruitDisplay();
+                this.updateBestScore();
                 this.gameLoop();
             }
 
@@ -145,6 +226,8 @@
             }
 
             dropFruit(e) {
+                if (this.gameState !== 'playing') return;
+                
                 const rect = this.canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 
@@ -173,6 +256,11 @@
             }
 
             update() {
+                if (this.gameState !== 'playing') {
+                    this.updateEffects();
+                    return;
+                }
+
                 this.fruits.forEach((fruit, index) => {
                     fruit.vy += this.gravity;
                     fruit.x += fruit.vx;
@@ -194,6 +282,7 @@
                 });
 
                 this.checkCollisions();
+                this.checkGameOver();
             }
 
             checkCollisions() {
@@ -250,6 +339,11 @@
                 this.score += newFruit.points;
                 document.getElementById('score').textContent = this.score;
 
+                // スイカを作成した場合のクリア処理
+                if (newType === this.fruitTypes.length - 1) {
+                    this.gameCleared(newFruit);
+                }
+
                 this.fruits.splice(Math.max(index1, index2), 1);
                 this.fruits.splice(Math.min(index1, index2), 1);
                 this.fruits.push(newFruit);
@@ -258,6 +352,17 @@
             draw() {
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+                // 危険ラインを描画
+                this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+                this.ctx.lineWidth = 2;
+                this.ctx.setLineDash([5, 5]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, this.dangerLine);
+                this.ctx.lineTo(this.canvas.width, this.dangerLine);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+
+                // フルーツを描画
                 this.fruits.forEach(fruit => {
                     this.ctx.beginPath();
                     this.ctx.arc(fruit.x, fruit.y, fruit.size, 0, Math.PI * 2);
@@ -273,6 +378,9 @@
                     this.ctx.fillStyle = 'white';
                     this.ctx.fillText(fruit.emoji, fruit.x, fruit.y);
                 });
+
+                // エフェクトを描画
+                this.drawEffects();
             }
 
             gameLoop() {
@@ -285,8 +393,108 @@
                 this.fruits = [];
                 this.score = 0;
                 this.nextFruit = this.getRandomFruit();
+                this.gameState = 'playing';
+                this.gameOverTimer = 0;
+                this.clearEffects = [];
                 document.getElementById('score').textContent = this.score;
                 this.updateNextFruitDisplay();
+            }
+
+            restart() {
+                this.closeModal();
+                this.reset();
+            }
+
+            checkGameOver() {
+                const dangerFruits = this.fruits.filter(fruit => 
+                    fruit.y - fruit.size < this.dangerLine && Math.abs(fruit.vy) < 1
+                );
+
+                if (dangerFruits.length > 0) {
+                    this.gameOverTimer++;
+                    if (this.gameOverTimer > 120) { // 2秒間
+                        this.gameOver();
+                    }
+                } else {
+                    this.gameOverTimer = 0;
+                }
+            }
+
+            gameOver() {
+                this.gameState = 'gameover';
+                this.updateBestScore();
+                this.showModal('ゲームオーバー', '危険ラインを超えました！', false);
+            }
+
+            gameCleared(watermelon) {
+                this.gameState = 'cleared';
+                this.updateBestScore();
+                
+                // クリアエフェクトを追加
+                for (let i = 0; i < 20; i++) {
+                    this.clearEffects.push({
+                        x: watermelon.x + (Math.random() - 0.5) * 100,
+                        y: watermelon.y + (Math.random() - 0.5) * 100,
+                        vx: (Math.random() - 0.5) * 10,
+                        vy: (Math.random() - 0.5) * 10,
+                        life: 60,
+                        maxLife: 60
+                    });
+                }
+                
+                this.showModal('🎉 ゲームクリア！', 'スイカを作りました！\nおめでとうございます！', true);
+            }
+
+            showModal(title, message, canContinue) {
+                document.getElementById('modal-title').textContent = title;
+                document.getElementById('modal-message').textContent = message;
+                document.getElementById('modal-score').textContent = `スコア: ${this.score}`;
+                document.getElementById('continue-btn').style.display = canContinue ? 'inline-block' : 'none';
+                document.getElementById('game-modal').style.display = 'block';
+            }
+
+            closeModal() {
+                document.getElementById('game-modal').style.display = 'none';
+                if (this.gameState === 'cleared') {
+                    this.gameState = 'playing';
+                }
+            }
+
+            updateEffects() {
+                this.clearEffects = this.clearEffects.filter(effect => {
+                    effect.x += effect.vx;
+                    effect.y += effect.vy;
+                    effect.vy += 0.2;
+                    effect.life--;
+                    return effect.life > 0;
+                });
+            }
+
+            drawEffects() {
+                this.clearEffects.forEach(effect => {
+                    const alpha = effect.life / effect.maxLife;
+                    this.ctx.save();
+                    this.ctx.globalAlpha = alpha;
+                    this.ctx.fillStyle = '#FFD700';
+                    this.ctx.fillRect(effect.x - 2, effect.y - 2, 4, 4);
+                    this.ctx.restore();
+                });
+            }
+
+            loadBestScore() {
+                return parseInt(localStorage.getItem('suika-best-score') || '0');
+            }
+
+            saveBestScore() {
+                localStorage.setItem('suika-best-score', this.bestScore.toString());
+            }
+
+            updateBestScore() {
+                if (this.score > this.bestScore) {
+                    this.bestScore = this.score;
+                    this.saveBestScore();
+                }
+                document.getElementById('best-score').textContent = this.bestScore;
             }
         }
 
