@@ -145,6 +145,49 @@
             border: 1px dashed red;
             pointer-events: none;
         }
+
+        .timer-container {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(70, 130, 180, 0.1);
+            border-radius: 10px;
+        }
+
+        .timer-display {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4682b4;
+            margin-bottom: 5px;
+        }
+
+        .timer-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(70, 130, 180, 0.3);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .timer-progress {
+            height: 100%;
+            background: linear-gradient(90deg, #4682b4, #87ceeb);
+            transition: width 0.1s linear;
+        }
+
+        .drop-preview {
+            position: absolute;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        .drop-guide {
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background: rgba(70, 130, 180, 0.5);
+            pointer-events: none;
+            top: 0;
+        }
     </style>
 </head>
 <body>
@@ -158,12 +201,21 @@
         <div class="next-fruit">
             次のフルーツ: <div id="next-fruit-display"></div>
         </div>
+        <div class="timer-container">
+            <div class="timer-display" id="timer-display">3</div>
+            <div class="timer-bar">
+                <div class="timer-progress" id="timer-progress"></div>
+            </div>
+        </div>
         <div style="position: relative; display: inline-block;">
             <canvas id="game-canvas" width="400" height="600"></canvas>
             <div class="danger-line" id="danger-line" style="top: 80px;"></div>
+            <div class="drop-guide" id="drop-guide" style="display: none;"></div>
+            <div class="drop-preview" id="drop-preview" style="display: none;"></div>
         </div>
         <div class="controls">
-            <p>🖱️ クリックでフルーツを落とす</p>
+            <p>🖱️ マウスで位置を決めよう</p>
+            <p>⏰ 3秒ごとに自動で落下</p>
             <p>🎯 目標: スイカ（🍉）を作ろう！</p>
         </div>
     </div>
@@ -195,6 +247,12 @@
                 this.clearEffects = [];
                 this.bestScore = this.loadBestScore();
                 
+                // 自動落下システム
+                this.dropTimer = 3.0; // 3秒
+                this.maxDropTimer = 3.0;
+                this.dropX = 200; // デフォルト位置
+                this.showPreview = true;
+                
                 this.fruitTypes = [
                     { size: 20, color: '#ff6b35', emoji: '🍒', points: 10 },
                     { size: 25, color: '#ff8c42', emoji: '🍓', points: 20 },
@@ -212,7 +270,14 @@
             }
 
             init() {
-                this.canvas.addEventListener('click', (e) => this.dropFruit(e));
+                // マウス移動で位置指定
+                this.canvas.addEventListener('mousemove', (e) => this.updateDropPosition(e));
+                this.canvas.addEventListener('mouseleave', () => this.hidePreview());
+                this.canvas.addEventListener('mouseenter', () => this.showPreviewDisplay());
+                
+                // キーボード操作
+                document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+                
                 document.getElementById('reset-btn').addEventListener('click', () => this.reset());
                 document.getElementById('continue-btn').addEventListener('click', () => this.closeModal());
                 document.getElementById('restart-btn').addEventListener('click', () => this.restart());
@@ -225,14 +290,41 @@
                 return Math.floor(Math.random() * 5);
             }
 
-            dropFruit(e) {
+            updateDropPosition(e) {
                 if (this.gameState !== 'playing') return;
                 
                 const rect = this.canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
+                this.dropX = e.clientX - rect.left;
+                
+                // 境界チェック
+                const fruitSize = this.fruitTypes[this.nextFruit].size;
+                this.dropX = Math.max(fruitSize, Math.min(this.canvas.width - fruitSize, this.dropX));
+                
+                this.updatePreview();
+            }
+
+            handleKeyboard(e) {
+                if (this.gameState !== 'playing') return;
+                
+                const fruitSize = this.fruitTypes[this.nextFruit].size;
+                const moveSpeed = 10;
+                
+                if (e.key === 'ArrowLeft') {
+                    this.dropX = Math.max(fruitSize, this.dropX - moveSpeed);
+                    this.updatePreview();
+                    e.preventDefault();
+                } else if (e.key === 'ArrowRight') {
+                    this.dropX = Math.min(this.canvas.width - fruitSize, this.dropX + moveSpeed);
+                    this.updatePreview();
+                    e.preventDefault();
+                }
+            }
+
+            dropFruit() {
+                if (this.gameState !== 'playing') return;
                 
                 const fruit = {
-                    x: x,
+                    x: this.dropX,
                     y: 10,
                     vx: 0,
                     vy: 0,
@@ -243,6 +335,8 @@
                 this.fruits.push(fruit);
                 this.nextFruit = this.getRandomFruit();
                 this.updateNextFruitDisplay();
+                this.dropTimer = this.maxDropTimer; // タイマーリセット
+                this.updatePreview();
             }
 
             updateNextFruitDisplay() {
@@ -260,6 +354,13 @@
                     this.updateEffects();
                     return;
                 }
+
+                // 自動落下タイマー更新
+                this.dropTimer -= 1/60; // 60FPSを想定
+                if (this.dropTimer <= 0) {
+                    this.dropFruit();
+                }
+                this.updateTimerDisplay();
 
                 this.fruits.forEach((fruit, index) => {
                     fruit.vy += this.gravity;
@@ -396,8 +497,59 @@
                 this.gameState = 'playing';
                 this.gameOverTimer = 0;
                 this.clearEffects = [];
+                this.dropTimer = this.maxDropTimer;
+                this.dropX = 200;
                 document.getElementById('score').textContent = this.score;
                 this.updateNextFruitDisplay();
+                this.updatePreview();
+            }
+
+            updateTimerDisplay() {
+                const seconds = Math.ceil(this.dropTimer);
+                const progress = (this.dropTimer / this.maxDropTimer) * 100;
+                
+                document.getElementById('timer-display').textContent = seconds;
+                document.getElementById('timer-progress').style.width = progress + '%';
+            }
+
+            updatePreview() {
+                if (this.gameState !== 'playing') return;
+                
+                const preview = document.getElementById('drop-preview');
+                const guide = document.getElementById('drop-guide');
+                const nextType = this.fruitTypes[this.nextFruit];
+                
+                if (this.showPreview) {
+                    // プレビュー表示
+                    preview.style.display = 'block';
+                    preview.style.left = (this.dropX - nextType.size) + 'px';
+                    preview.style.top = (10 - nextType.size) + 'px';
+                    preview.style.width = (nextType.size * 2) + 'px';
+                    preview.style.height = (nextType.size * 2) + 'px';
+                    preview.style.backgroundColor = nextType.color;
+                    preview.style.borderRadius = '50%';
+                    preview.textContent = nextType.emoji;
+                    preview.style.fontSize = nextType.size + 'px';
+                    preview.style.lineHeight = (nextType.size * 2) + 'px';
+                    preview.style.textAlign = 'center';
+                    
+                    // ガイドライン表示
+                    guide.style.display = 'block';
+                    guide.style.left = this.dropX + 'px';
+                } else {
+                    preview.style.display = 'none';
+                    guide.style.display = 'none';
+                }
+            }
+
+            showPreviewDisplay() {
+                this.showPreview = true;
+                this.updatePreview();
+            }
+
+            hidePreview() {
+                this.showPreview = false;
+                this.updatePreview();
             }
 
             restart() {
@@ -499,7 +651,10 @@
         }
 
         window.addEventListener('load', () => {
-            new SuikaGame();
+            const game = new SuikaGame();
+            // フォーカスを設定してキーボード操作を有効にする
+            document.body.setAttribute('tabindex', '0');
+            document.body.focus();
         });
     </script>
 </body>
